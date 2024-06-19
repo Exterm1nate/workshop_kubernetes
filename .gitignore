@@ -35,3 +35,17 @@ override.tf.json
 # Ignore CLI configuration files
 .terraformrc
 terraform.rc
+
+app/dummy/tmp/*
+!app/dummy/tmp/.keep
+
+app/dummy/log/*
+!app/dummy/log/.keep
+
+app/dummy/storage/*
+!app/dummy/storage/.keep
+
+app/dummy/config/master.key
+
+infra/envs/demo/k8s-demo-sa-key.json
+infra/envs/demo/terraform-admin-sa-b1gdqkcpn4h6d2mu5jsl-key.json

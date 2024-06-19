@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-dummy # Имя деплоймента.
+spec:
+  replicas: 4 # Количество реплик (подов), которые будут запущены.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+  selector:
+    matchLabels:
+      app: demo-dummy # Метка, используемая для выбора подов, которые будут управляться этим деплойментом.
+  template:
+    metadata:
+      labels:
+        app: demo-dummy # Метка, присваиваемая каждому создаваемому поду.
+    spec:
+      containers:
+        - name: dummy-container # Имя контейнера в поде
+          image: cr.yandex/crp5e24gs798lprtftgg/dummy-app:0.0.2 # ${IMAGE_NAME}
+          ports:
+            - containerPort: 3000
+          env:
+            - name: RAILS_MASTER_KEY
+              value: "bdec790de4ef182e6f1b619f8b06872f"
+          command: ["./bin/rails"]
+          args: ["server"]
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "200Mi"
