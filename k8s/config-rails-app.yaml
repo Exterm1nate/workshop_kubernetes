@@ -4,5 +4,6 @@ metadata:
   name: rails-app-config
 data:
   rails_env: "production"
+  new_config: "this is not a secret"
 
 

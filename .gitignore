@@ -38,3 +38,6 @@ override.tf.json
 .terraformrc
 terraform.rc
 
+infra/envs/demo/k8s-demo-sa-key.json
+infra/envs/demo/terraform-admin-sa-b1gdqkcpn4h6d2mu5jsl-key.json
+infra/envs/demo/terraform-admin-sa-b1gdqkcpn4h6d2mu5jsl-key.json

@@ -26,18 +26,26 @@ spec:
               mountPath: 'rails/config/config.json'
               subPath: 'config.json'
           env:
-            - name: FOO_KEY
-              value: 'FOO_VALUE'
-            - name: SECRET_KEY_BASE
+            - name: RAILS_MASTER_KEY
               valueFrom:
                 secretKeyRef:
                   name: rails-app-secret
-                  key: secret_key_base
+                  key: rails_master_key
             - name: RAILS_ENV
               valueFrom:
                 configMapKeyRef:
                   name: rails-app-config
                   key: rails_env
+            - name: NEW_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: rails-app-secret
+                  key: new_secret
+            - name: NEW_CONFIG
+              valueFrom:
+                configMapKeyRef:
+                  name: rails-app-config
+                  key: new_config
           ports:
             - containerPort: 3000
           command: ["./bin/rails"]

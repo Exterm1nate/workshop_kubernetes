@@ -11,11 +11,11 @@ spec:
           command: ['bin/rails']
           args: ['db:migrate']
           env:
-            - name: SECRET_KEY_BASE
+            - name: RAILS_MASTER_KEY
               valueFrom:
                 secretKeyRef:
                   name: rails-app-secret
-                  key: secret_key_base
+                  key: rails_master_key
             - name: RAILS_ENV
               valueFrom:
                 configMapKeyRef:
