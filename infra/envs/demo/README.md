@@ -39,7 +39,7 @@ provider_installation {
 
 ```bash
 ☁ sudo apt install -y jq
-☁ FOLDER_NAME=demo
+☁ FOLDER_NAME=demo2
 ☁ FOLDER_ID=$(yc config get folder-id)
 ☁ echo $FOLDER_ID
 ☁ CLOUD_ID=$(yc config get cloud-id)
@@ -123,7 +123,7 @@ sa-demo-terraform ACTIVE
 default
 sa-demo-terraform ACTIVE
 ```
-Однако, токены можно указать вручную в proviers.tf в секции `provider "yandex"`
+Однако, токены можно указать вручную в providers.tf в секции `provider "yandex"`
 ```
 provider "yandex" {
   token     = <yc_token>     # Токен для доступа к API Yandex Cloud (yc iam create-token)

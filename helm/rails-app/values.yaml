@@ -1,10 +1,10 @@
 replicaCount: 1
 
 image:
-  repository: cr.yandex/crpeajajv7qumuk1l1kj/hello-rails
+  repository: cr.yandex/crp31a69okiqi9f03vr1/hello-rails
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "0.0.10"
+  tag: "0.0.1"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -26,7 +26,7 @@ seeds:
 resources:
   limits:
     cpu: 200m
-    memory: 200Mi
+    memory: 256Mi
   requests:
     cpu: 100m
     memory: 128Mi

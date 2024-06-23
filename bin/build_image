@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Configuration
-CR_NAME=${CR_NAME:-day-2}
+CR_NAME=${CR_NAME:-demo}
 IMAGE_NAME=${IMAGE_NAME:-hello-rails}
 IMAGE_VERSION=${1:-0.0.1}  # Use the first argument as IMAGE_VERSION, or default to 0.0.1
 
