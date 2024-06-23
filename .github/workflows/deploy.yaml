@@ -196,3 +196,46 @@ jobs:
         run: |
           # Загружаем Helm-чарт в Yandex Cloud Container Registry
           helm push ${{ steps.package_helm_chart.outputs.PACKAGE_FILENAME }} oci://cr.yandex/${{env.CR_REGISTRY}}
+
+  install:
+    runs-on: ubuntu-latest
+    needs:
+      - package
+    env:
+      CR_REGISTRY: ${{ secrets.CR_REGISTRY }}
+      CR_REPOSITORY: ${{ secrets.CR_REPOSITORY }}
+      IMAGE_NAME: cr.yandex/${{ secrets.CR_REGISTRY }}/${{ secrets.CR_REPOSITORY }}
+      APP_VERSION: ${{ needs.get-version.outputs.APP_VERSION }}
+      PACKAGE_FILENAME: ${{ needs.package.outputs.PACKAGE_FILENAME }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Устанавливаем и аутентифицируем Yandex Cloud CLI
+      - name: Install Yandex Cloud CLI and Authenticate
+        uses: ./.github/actions/yc-cli-install
+        with:
+          yc_token: ${{ secrets.YC_TOKEN }}
+          yc_cloud_id: ${{ secrets.YC_CLOUD_ID }}
+          yc_folder_id: ${{ secrets.YC_FOLDER_ID }}
+
+      # Логинимся в Helm Registry
+      - name: Login to Helm Registry
+        run: |
+          # Включаем экспериментальную поддержку OCI в Helm и логинимся в регистри
+          export HELM_EXPERIMENTAL_OCI=1
+          yc iam create-token | helm registry login cr.yandex -u iam --password-stdin
+
+      # Создаём файл секретов для Helm
+      - name: Create Helm Secrets File
+        run: |
+          echo "${{ secrets.RAILS_APP_K8S_SECRET }}" > ./rails-app-secrets.yaml
+
+      - name: Pull and upgrade Helm
+        run: |
+          helm pull oci://cr.yandex/${{ env.CR_REGISTRY }}/${{ env.PACKAGE_FILENAME }} # Пулл нашего пакета в файл
+          helm upgrade --install ${{ env.K8S_APP_NAME }} ./${{ env.PACKAGE_FILENAME }} \
+            -f ./rails-app-secrets.yaml \
+            --set image.tag='${{ env.APP_VERSION }}' \
+            --set image.repository='${{ env.IMAGE_NAME }}' \
+            --wait
