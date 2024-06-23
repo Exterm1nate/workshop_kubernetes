@@ -233,7 +233,7 @@ jobs:
 
       - name: Pull and upgrade Helm
         run: |
-          helm pull oci://cr.yandex/${{ env.CR_REGISTRY }}/${{ env.PACKAGE_FILENAME }} # Пулл нашего пакета в файл
+          helm pull oci://cr.yandex/${{ env.CR_REGISTRY }}/${{ env.HELM_CHART_NAME }} --version ${{ env.APP_VERSION }} # Пулл нашего пакета в файл
           helm upgrade --install ${{ env.K8S_APP_NAME }} ./${{ env.PACKAGE_FILENAME }} \
             -f ./rails-app-secrets.yaml \
             --set image.tag='${{ env.APP_VERSION }}' \
