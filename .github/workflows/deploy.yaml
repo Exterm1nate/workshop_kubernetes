@@ -200,6 +200,7 @@ jobs:
   install:
     runs-on: ubuntu-latest
     needs:
+      - get-version
       - package
     env:
       CR_REGISTRY: ${{ secrets.CR_REGISTRY }}
