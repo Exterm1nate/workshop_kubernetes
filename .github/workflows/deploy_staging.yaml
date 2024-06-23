@@ -1,0 +1,248 @@
+name: Build and Deploy APP (Staging)
+
+on:
+  # Триггер для ручного запуска workflow
+  workflow_dispatch:
+
+env:
+  HELM_CHART_NAME: rails-app
+  K8S_APP_NAME: demo-site-staging
+  K8S_CLUSTER_NAME: k8s-demo-cluster
+jobs:
+  # Job для извлечения версии приложения из тега
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      # Сохраняем версию, извлечённую на этапе get_version
+      APP_VERSION: ${{ steps.get_version.outputs.APP_VERSION}}
+    steps:
+      - id: get_version
+        env:
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          # Сохраняем имя тега в переменную
+          tag="${TAG}"
+          # Извлекаем версию, убирая префикс 'v' из тега
+          APP_VERSION="${tag#v}"
+          # Записываем версию в output переменную
+          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_OUTPUT
+
+  # Job для отображения извлечённой версии
+  display-version:
+    runs-on: ubuntu-latest
+    needs: get-version
+    steps:
+      - name: Display version
+        env:
+          APP_VERSION: ${{ needs.get-version.outputs.APP_VERSION }}
+        run: |
+          # Выводим извлечённую версию
+          echo "Extracted version: ${{ env.APP_VERSION }}"
+
+  # Job для сборки и загрузки Docker-образа в Yandex Cloud Container Registry
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    needs: get-version
+    env:
+      APP_VERSION: ${{ needs.get-version.outputs.APP_VERSION }}
+      CR_REGISTRY: ${{ secrets.CR_REGISTRY }}
+      CR_REPOSITORY: ${{ secrets.CR_REPOSITORY }}
+      IMAGE_NAME: cr.yandex/${{ secrets.CR_REGISTRY }}/${{ secrets.CR_REPOSITORY }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Логинимся в Yandex Cloud Container Registry
+      - name: Login to Yandex Cloud Container Registry
+        id: login-cr
+        uses: yc-actions/yc-cr-login@v2
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_CR_PUSHER_SA_JSON_CREDENTIALS }}
+
+      # Кэшируем слои Docker для ускорения сборки
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ needs.get-version.outputs.APP_VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      # Настраиваем Docker Buildx
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - id: push_image
+        name: Build, tag, and push image to Yandex Cloud Container Registry
+        working-directory: ./app
+        run: |
+          # Сборка, тегирование и загрузка образа в Yandex Cloud Container Registry с использованием кэша
+          docker buildx build --cache-from type=local,src=/tmp/.buildx-cache --cache-to type=local,dest=/tmp/.buildx-cache --push -t ${{ env.IMAGE_NAME }}:${{ needs.get-version.outputs.APP_VERSION }} .
+
+  # Job для проверки Helm-чарта
+  lint:
+    runs-on: ubuntu-latest
+    needs:
+      - get-version
+      - build-and-push-image
+    env:
+      APP_VERSION: ${{ needs.get-version.outputs.APP_VERSION }}
+      IMAGE_NAME: cr.yandex/${{ secrets.CR_REGISTRY }}/${{ secrets.CR_REPOSITORY }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Создаём файл секретов для Helm
+      - name: Create Helm Secrets File
+        run: |
+          echo "${{ secrets.RAILS_APP_K8S_SECRET_STAGING }}" > ./rails-app-secrets.yaml
+
+      # Проверяем наш чарт
+      - name: Run Helm Lint
+        run: |
+          # Запускаем проверку Helm-чарта
+          helm lint ./helm/rails-app \
+          -f ./rails-app-secrets.yaml \
+          --set image.tag='${{ env.APP_VERSION }}' \
+          --set image.repository=${{ env.IMAGE_NAME }}
+
+  # Job для запуска dry-run деплоя Helm-чарта
+  dry-run:
+    runs-on: ubuntu-latest
+    needs:
+      - get-version
+      - build-and-push-image
+      - lint
+    env:
+      APP_VERSION: ${{ needs.get-version.outputs.APP_VERSION }}
+      IMAGE_NAME: cr.yandex/${{ secrets.CR_REGISTRY }}/${{ secrets.CR_REPOSITORY }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Устанавливаем и аутентифицируем Yandex Cloud CLI
+      - name: Install Yandex Cloud CLI and Authenticate
+        uses: ./.github/actions/yc-cli-install
+        with:
+          yc_token: ${{ secrets.YC_TOKEN }}
+          yc_cloud_id: ${{ secrets.YC_CLOUD_ID }}
+          yc_folder_id: ${{ secrets.YC_FOLDER_ID }}
+
+      # Логинимся в Helm Registry
+      - name: Login to Helm Registry (YC Container Registry)
+        run: |
+          # Включаем экспериментальную поддержку OCI в Helm и логинимся в регистри
+          export HELM_EXPERIMENTAL_OCI=1
+          yc iam create-token | helm registry login cr.yandex -u iam --password-stdin
+
+      # Создаём файл секретов для Helm
+      - name: Create Helm Secrets File
+        run: |
+          echo "${{ secrets.RAILS_APP_K8S_SECRET_STAGING }}" > ./rails-app-secrets.yaml
+
+      - name: Run Helm Template --dry-run
+        run: |
+          # Получаем креденшалы для кластера Kubernetes
+          yc managed-kubernetes cluster get-credentials ${{ env.K8S_CLUSTER_NAME }} --external --force
+          # Запускаем Helm upgrade с флагом --dry-run для проверки шаблонов
+          helm upgrade --install ${{ env.K8S_APP_NAME }} ./helm/rails-app --dry-run \
+          -f ./rails-app-secrets.yaml \
+          --set image.tag='${{ env.APP_VERSION }}' \
+          --set image.repository=${{ env.IMAGE_NAME }}
+
+  # Job для упаковки Helm-чарта
+  package:
+    runs-on: ubuntu-latest
+    needs:
+      - get-version
+      - dry-run
+    env:
+      APP_VERSION: ${{ needs.get-version.outputs.APP_VERSION }}
+      CR_REGISTRY: ${{ secrets.CR_REGISTRY }}
+    outputs:
+      PACKAGE_FILENAME: ${{ steps.package_helm_chart.outputs.PACKAGE_FILENAME }}
+      PACKAGE_VERSION: ${{ steps.package_helm_chart.outputs.PACKAGE_VERSION }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Устанавливаем и аутентифицируем Yandex Cloud CLI
+      - name: Install Yandex Cloud CLI and Authenticate
+        uses: ./.github/actions/yc-cli-install
+        with:
+          yc_token: ${{ secrets.YC_TOKEN }}
+          yc_cloud_id: ${{ secrets.YC_CLOUD_ID }}
+          yc_folder_id: ${{ secrets.YC_FOLDER_ID }}
+
+      # Упаковываем Helm-чарт
+      - id: package_helm_chart
+        name: Package Helm Chart
+        run: |
+          helm package ./helm/rails-app/. --version ${{ env.APP_VERSION }} --app-version ${{ env.APP_VERSION }}
+          # Сохраняем имя и версию пакета в output переменные
+          echo "PACKAGE_FILENAME=${{env.HELM_CHART_NAME}}-${{ env.APP_VERSION }}.tgz" >> $GITHUB_OUTPUT
+          echo "PACKAGE_VERSION=${{ env.APP_VERSION }}" >> $GITHUB_OUTPUT
+
+      # Логинимся в Helm Registry
+      - name: Login to Helm Registry
+        run: |
+          # Включаем экспериментальную поддержку OCI в Helm и логинимся в регистри
+          export HELM_EXPERIMENTAL_OCI=1
+          yc iam create-token | helm registry login cr.yandex -u iam --password-stdin
+
+      # Пушим наш чарт в Helm Registry
+      - name: Push Helm Chart to Yandex Cloud Container Registry
+        run: |
+          # Загружаем Helm-чарт в Yandex Cloud Container Registry
+          helm push ${{ steps.package_helm_chart.outputs.PACKAGE_FILENAME }} oci://cr.yandex/${{env.CR_REGISTRY}}
+
+  install:
+    runs-on: ubuntu-latest
+    needs:
+      - get-version
+      - build-and-push-image
+      - lint
+      - dry-run
+      - package
+    env:
+      CR_REGISTRY: ${{ secrets.CR_REGISTRY }}
+      CR_REPOSITORY: ${{ secrets.CR_REPOSITORY }}
+      IMAGE_NAME: cr.yandex/${{ secrets.CR_REGISTRY }}/${{ secrets.CR_REPOSITORY }}
+      APP_VERSION: ${{ needs.get-version.outputs.APP_VERSION }}
+      PACKAGE_FILENAME: ${{ needs.package.outputs.PACKAGE_FILENAME }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Устанавливаем и аутентифицируем Yandex Cloud CLI
+      - name: Install Yandex Cloud CLI and Authenticate
+        uses: ./.github/actions/yc-cli-install
+        with:
+          yc_token: ${{ secrets.YC_TOKEN }}
+          yc_cloud_id: ${{ secrets.YC_CLOUD_ID }}
+          yc_folder_id: ${{ secrets.YC_FOLDER_ID }}
+
+      # Логинимся в Helm Registry
+      - name: Login to Helm Registry
+        run: |
+          # Включаем экспериментальную поддержку OCI в Helm и логинимся в регистри
+          export HELM_EXPERIMENTAL_OCI=1
+          yc iam create-token | helm registry login cr.yandex -u iam --password-stdin
+
+      # Создаём файл секретов для Helm
+      - name: Create Helm Secrets File
+        run: |
+          echo "${{ secrets.RAILS_APP_K8S_SECRET_STAGING }}" > ./rails-app-secrets.yaml
+
+      - name: Pull and upgrade Helm
+        run: |
+          # Получаем креденшалы для кластера Kubernetes
+          yc managed-kubernetes cluster get-credentials ${{ env.K8S_CLUSTER_NAME }} --external --force
+          
+          helm pull oci://cr.yandex/${{ env.CR_REGISTRY }}/${{ env.HELM_CHART_NAME }} --version ${{ env.APP_VERSION }} # Пулл нашего пакета в файл
+          helm upgrade --install ${{ env.K8S_APP_NAME }} ./${{ env.PACKAGE_FILENAME }} \
+            -f ./rails-app-secrets.yaml \
+            --set image.tag='${{ env.APP_VERSION }}' \
+            --set image.repository=${{ env.IMAGE_NAME }} \
+            --wait
