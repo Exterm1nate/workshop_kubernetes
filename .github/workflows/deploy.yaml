@@ -201,6 +201,9 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - get-version
+      - build-and-push-image
+      - lint
+      - dry-run
       - package
     env:
       CR_REGISTRY: ${{ secrets.CR_REGISTRY }}
@@ -234,9 +237,12 @@ jobs:
 
       - name: Pull and upgrade Helm
         run: |
+          # Получаем креденшалы для кластера Kubernetes
+          yc managed-kubernetes cluster get-credentials ${{ env.K8S_CLUSTER_NAME }} --external --force
+          
           helm pull oci://cr.yandex/${{ env.CR_REGISTRY }}/${{ env.HELM_CHART_NAME }} --version ${{ env.APP_VERSION }} # Пулл нашего пакета в файл
           helm upgrade --install ${{ env.K8S_APP_NAME }} ./${{ env.PACKAGE_FILENAME }} \
             -f ./rails-app-secrets.yaml \
             --set image.tag='${{ env.APP_VERSION }}' \
-            --set image.repository='${{ env.IMAGE_NAME }}' \
+            --set image.repository=${{ env.IMAGE_NAME }} \
             --wait
